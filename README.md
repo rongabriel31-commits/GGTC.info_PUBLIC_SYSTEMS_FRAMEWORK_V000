@@ -1240,3 +1240,476 @@ Once the repo grows, add:
 ├── api/
 │   └── app.py
 
+But not in version 1 unless you already need them.
+
+⸻
+
+Best naming standard
+
+Use lowercase filenames with underscores:
+
+* content_analyzer.py
+* metadata_validator.py
+* link_model.py
+
+Keep class names singular and clear:
+
+* PageModel
+* LinkModel
+* ContentAnalyzer
+
+⸻
+
+Practical note
+
+For GitHub, include these from day one:
+
+* README.md
+* requirements.txt
+* LICENSE
+* .gitignore
+* tests/
+
+Without those, the repo looks unfinished.
+
+⸻
+
+I can draft the actual file-by-file starter code for this structure next.
+
+actual file-by-file starter code
+
+I’m assembling a complete starter scaffold rather than fragments so you can lift it directly into a repository and edit from there.
+
+GGTC Content Structure Analyzer — Starter Code
+
+Below is a file-by-file starter implementation for the repository.
+
+⸻
+
+requirements.txt
+
+beautifulsoup4>=4.12.0
+markdown>=3.5.0
+pytest>=8.0.0
+
+.gitignore
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+data/output/
+*.log
+.DS_Store
+
+README.md
+
+# GGTC Content Structure Analyzer
+A Python tool for scanning HTML and Markdown content, extracting structural information, and exporting content and link reports.
+## Features
+- Scan `.html`, `.htm`, and `.md` files
+- Extract titles, headings, metadata, and links
+- Export CSV and JSON reports
+- Simple command-line usage
+## Quick Start
+```bash
+python main.py --input data/input --output data/output
+
+Output
+
+* content_report.csv
+* metadata_report.csv
+* link_map.json
+
+## `main.py`
+```python
+from src.ggtc_analyzer.cli import main
+if __name__ == "__main__":
+    main()
+
+config/default_config.json
+
+{
+  "supported_extensions": [".html", ".htm", ".md"],
+  "output_files": {
+    "content_csv": "content_report.csv",
+    "metadata_csv": "metadata_report.csv",
+    "link_json": "link_map.json"
+  }
+}
+
+src/ggtc_analyzer/__init__.py
+
+__all__ = ["cli", "runner"]
+
+src/ggtc_analyzer/cli.py
+
+import argparse
+from src.ggtc_analyzer.runner import run_analysis
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Analyze HTML and Markdown content structure."
+    )
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="Path to the input directory containing content files.",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Path to the output directory for reports.",
+    )
+    return parser
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    run_analysis(input_dir=args.input, output_dir=args.output)
+
+src/ggtc_analyzer/settings.py
+
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default_config.json"
+
+src/ggtc_analyzer/runner.py
+
+from pathlib import Path
+from src.ggtc_analyzer.utils.file_loader import discover_files
+from src.ggtc_analyzer.parsers.html_parser import parse_html_file
+from src.ggtc_analyzer.parsers.markdown_parser import parse_markdown_file
+from src.ggtc_analyzer.analyzers.content_analyzer import build_content_report
+from src.ggtc_analyzer.analyzers.metadata_analyzer import build_metadata_report
+from src.ggtc_analyzer.analyzers.link_analyzer import build_link_map
+from src.ggtc_analyzer.exporters.csv_exporter import export_csv
+from src.ggtc_analyzer.exporters.json_exporter import export_json
+def run_analysis(input_dir: str, output_dir: str) -> None:
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    files = discover_files(input_path)
+    pages = []
+    for file_path in files:
+        suffix = file_path.suffix.lower()
+        if suffix in {".html", ".htm"}:
+            pages.append(parse_html_file(file_path))
+        elif suffix == ".md":
+            pages.append(parse_markdown_file(file_path))
+    content_report = build_content_report(pages)
+    metadata_report = build_metadata_report(pages)
+    link_map = build_link_map(pages)
+    export_csv(output_path / "content_report.csv", content_report)
+    export_csv(output_path / "metadata_report.csv", metadata_report)
+    export_json(output_path / "link_map.json", link_map)
+    print(f"Processed {len(pages)} page(s).")
+    print(f"Reports written to: {output_path}")
+
+src/ggtc_analyzer/utils/__init__.py
+
+src/ggtc_analyzer/utils/file_loader.py
+
+from pathlib import Path
+from typing import List
+SUPPORTED_EXTENSIONS = {".html", ".htm", ".md"}
+def discover_files(input_dir: Path) -> List[Path]:
+    if not input_dir.exists():
+        raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
+    files = [
+        path for path in input_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS
+    ]
+    return sorted(files)
+
+src/ggtc_analyzer/utils/export_utils.py
+
+from pathlib import Path
+def ensure_parent_dir(file_path: Path) -> None:
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+src/ggtc_analyzer/parsers/__init__.py
+
+src/ggtc_analyzer/parsers/html_parser.py
+
+from pathlib import Path
+from bs4 import BeautifulSoup
+from src.ggtc_analyzer.models.page_model import PageModel
+def parse_html_file(file_path: Path) -> PageModel:
+    html = file_path.read_text(encoding="utf-8", errors="ignore")
+    soup = BeautifulSoup(html, "html.parser")
+    title = soup.title.string.strip() if soup.title and soup.title.string else file_path.stem
+    meta_description = ""
+    meta_tag = soup.find("meta", attrs={"name": "description"})
+    if meta_tag and meta_tag.get("content"):
+        meta_description = meta_tag["content"].strip()
+    headings = []
+    for level in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+        for tag in soup.find_all(level):
+            text = tag.get_text(strip=True)
+            if text:
+                headings.append({"level": level, "text": text})
+    links = []
+    for anchor in soup.find_all("a", href=True):
+        href = anchor["href"].strip()
+        if href:
+            links.append(href)
+    body_text = soup.get_text(" ", strip=True)
+    word_count = len(body_text.split())
+    return PageModel(
+        path=str(file_path),
+        file_type="html",
+        title=title,
+        meta_description=meta_description,
+        headings=headings,
+        links=links,
+        word_count=word_count,
+    )
+
+src/ggtc_analyzer/parsers/markdown_parser.py
+
+from pathlib import Path
+import re
+from src.ggtc_analyzer.models.page_model import PageModel
+HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
+LINK_PATTERN = re.compile(r"\[.*?\]\((.*?)\)")
+def parse_markdown_file(file_path: Path) -> PageModel:
+    content = file_path.read_text(encoding="utf-8", errors="ignore")
+    headings = []
+    for match in HEADING_PATTERN.finditer(content):
+        level = f"h{len(match.group(1))}"
+        text = match.group(2).strip()
+        headings.append({"level": level, "text": text})
+    links = [match.group(1).strip() for match in LINK_PATTERN.finditer(content)]
+    title = headings[0]["text"] if headings else file_path.stem
+    word_count = len(content.split())
+    return PageModel(
+        path=str(file_path),
+        file_type="markdown",
+        title=title,
+        meta_description="",
+        headings=headings,
+        links=links,
+        word_count=word_count,
+    )
+
+src/ggtc_analyzer/analyzers/__init__.py
+
+src/ggtc_analyzer/analyzers/content_analyzer.py
+
+from typing import List, Dict, Any
+from src.ggtc_analyzer.models.page_model import PageModel
+def build_content_report(pages: List[PageModel]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "path": page.path,
+            "file_type": page.file_type,
+            "title": page.title,
+            "word_count": page.word_count,
+            "heading_count": len(page.headings),
+            "link_count": len(page.links),
+        }
+        for page in pages
+    ]
+
+src/ggtc_analyzer/analyzers/metadata_analyzer.py
+
+from typing import List, Dict, Any
+from src.ggtc_analyzer.models.page_model import PageModel
+def build_metadata_report(pages: List[PageModel]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "path": page.path,
+            "title": page.title,
+            "has_title": bool(page.title.strip()),
+            "meta_description": page.meta_description,
+            "has_meta_description": bool(page.meta_description.strip()),
+            "has_h1": any(h["level"] == "h1" for h in page.headings),
+        }
+        for page in pages
+    ]
+
+src/ggtc_analyzer/analyzers/link_analyzer.py
+
+from typing import List, Dict, Any
+from src.ggtc_analyzer.models.page_model import PageModel
+def build_link_map(pages: List[PageModel]) -> Dict[str, Any]:
+    return {
+        "pages": [
+            {
+                "path": page.path,
+                "title": page.title,
+                "links": page.links,
+            }
+            for page in pages
+        ]
+    }
+
+src/ggtc_analyzer/exporters/__init__.py
+
+src/ggtc_analyzer/exporters/csv_exporter.py
+
+import csv
+from pathlib import Path
+from typing import List, Dict, Any
+from src.ggtc_analyzer.utils.export_utils import ensure_parent_dir
+def export_csv(file_path: Path, rows: List[Dict[str, Any]]) -> None:
+    ensure_parent_dir(file_path)
+    if not rows:
+        file_path.write_text("", encoding="utf-8")
+        return
+    fieldnames = list(rows[0].keys())
+    with file_path.open("w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+src/ggtc_analyzer/exporters/json_exporter.py
+
+import json
+from pathlib import Path
+from typing import Any
+from src.ggtc_analyzer.utils.export_utils import ensure_parent_dir
+def export_json(file_path: Path, data: Any) -> None:
+    ensure_parent_dir(file_path)
+    with file_path.open("w", encoding="utf-8") as jsonfile:
+        json.dump(data, jsonfile, indent=2, ensure_ascii=False)
+
+src/ggtc_analyzer/models/__init__.py
+
+src/ggtc_analyzer/models/page_model.py
+
+from dataclasses import dataclass, field
+from typing import List, Dict
+@dataclass
+class PageModel:
+    path: str
+    file_type: str
+    title: str
+    meta_description: str
+    headings: List[Dict[str, str]] = field(default_factory=list)
+    links: List[str] = field(default_factory=list)
+    word_count: int = 0
+
+tests/test_html_parser.py
+
+from pathlib import Path
+from src.ggtc_analyzer.parsers.html_parser import parse_html_file
+def test_parse_html_file(tmp_path: Path) -> None:
+    file_path = tmp_path / "sample.html"
+    file_path.write_text(
+        """
+        <html>
+          <head>
+            <title>Test Page</title>
+            <meta name=\"description\" content=\"Example description\">
+          </head>
+          <body>
+            <h1>Main Heading</h1>
+            <a href=\"/about\">About</a>
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+    page = parse_html_file(file_path)
+    assert page.title == "Test Page"
+    assert page.meta_description == "Example description"
+    assert len(page.headings) == 1
+    assert page.links == ["/about"]
+
+tests/test_markdown_parser.py
+
+from pathlib import Path
+from src.ggtc_analyzer.parsers.markdown_parser import parse_markdown_file
+def test_parse_markdown_file(tmp_path: Path) -> None:
+    file_path = tmp_path / "sample.md"
+    file_path.write_text(
+        "# Welcome\n\nThis is a page with a [link](/start).",
+        encoding="utf-8",
+    )
+    page = parse_markdown_file(file_path)
+    assert page.title == "Welcome"
+    assert len(page.headings) == 1
+    assert page.links == ["/start"]
+
+tests/test_runner.py
+
+from pathlib import Path
+from src.ggtc_analyzer.runner import run_analysis
+def test_run_analysis(tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    (input_dir / "index.html").write_text(
+        "<html><head><title>Home</title></head><body><h1>Home</h1></body></html>",
+        encoding="utf-8",
+    )
+    run_analysis(str(input_dir), str(output_dir))
+    assert (output_dir / "content_report.csv").exists()
+    assert (output_dir / "metadata_report.csv").exists()
+    assert (output_dir / "link_map.json").exists()
+
+scripts/run_analysis.py
+
+from src.ggtc_analyzer.runner import run_analysis
+if __name__ == "__main__":
+    run_analysis("data/input", "data/output")
+
+data/input/sample_html/index.html
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>GGTC Sample Home</title>
+    <meta name="description" content="Sample homepage for analyzer testing.">
+  </head>
+  <body>
+    <h1>GGTC Home</h1>
+    <h2>Publishing</h2>
+    <p>This is sample content for the analyzer.</p>
+    <a href="/about">About</a>
+  </body>
+</html>
+
+data/input/sample_markdown/welcome.md
+
+# Welcome
+This is a sample markdown page.
+## Section One
+Read more at [About](/about).
+
+put the starter scaffold into the canvas as a full file-by-file code pack.
+
+What’s in it:
+
+* main.py
+* CLI and runner
+* HTML and Markdown parsers
+* content, metadata, and link analyzers
+* CSV and JSON exporters
+* page model
+* tests
+* sample input files
+* README.md, requirements.txt, .gitignore, and config
+
+Two important notes:
+
+1. This is a working starter, not a finished platform.
+2. It is intentionally lean so it is easier to upload to GitHub and extend cleanly.
+
+The next best step is to build out the missing repo pieces in the same style:
+
+* pyproject.toml
+* setup.cfg
+* LICENSE
+* test_file_loader.py
+* heading_analyzer.py
+* wordcount_analyzer.py
+* metadata_validator.py
+* orphan_detector.py
+
+I can generate the next complete pass with those missing files and tighten the code into a more production-ready v1 layout.
